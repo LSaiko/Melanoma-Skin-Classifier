@@ -1,0 +1,6 @@
+images/
+checkpoints/
+results/
+__pycache__/
+*.pyc
+.claude/
