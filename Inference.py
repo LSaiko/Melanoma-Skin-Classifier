@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 Inference.py — Melanoma Skin Lesion Classifier
 ═══════════════════════════════════════════════
@@ -25,7 +26,6 @@ from PIL import Image
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-import matplotlib.patches as patches
 from matplotlib.gridspec import GridSpec
 
 LABELS      = ["Non-Melanoma", "Melanoma"]
@@ -153,7 +153,9 @@ def build_report(orig_np, overlay_np, bbox_img_np,
     for sp in ax4.spines.values():
         sp.set_edgecolor("#374151")
 
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    out_dir = os.path.dirname(output_path)
+    if out_dir:
+        os.makedirs(out_dir, exist_ok=True)
     plt.savefig(output_path, dpi=150, bbox_inches="tight",
                 facecolor=fig.get_facecolor())
     plt.close(fig)
@@ -163,7 +165,7 @@ def run_inference(image_path, checkpoint_path=CKPT_PATH, output_path=None):
     # ── Load model ────────────────────────────────────────────────────────────
     model    = models.resnet18(weights=None)
     model.fc = nn.Linear(model.fc.in_features, 2)
-    model.load_state_dict(torch.load(checkpoint_path, map_location="cpu"))
+    model.load_state_dict(torch.load(checkpoint_path, map_location="cpu", weights_only=True))
     model.eval()
 
     gradcam = GradCAM(model)
