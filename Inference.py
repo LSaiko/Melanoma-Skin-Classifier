@@ -28,9 +28,9 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 
-LABELS      = ["Non-Melanoma", "Melanoma"]
-CKPT_PATH   = "C:/Users/Admin/data/checkpoints/resnet18_best.pth"
-RESULTS_DIR = "C:/Users/Admin/data/results"
+LABELS       = ["Non-Melanoma", "Melanoma"]
+CKPT_PATH    = "checkpoints/resnet18_best.pth"
+RESULTS_DIR  = "results"
 
 # ── Grad-CAM (ResNet18 — hooks into layer4) ───────────────────────────────────
 class GradCAM:
@@ -67,7 +67,7 @@ class GradCAM:
 
 def get_bounding_box(cam, threshold=0.45):
     """Derive the tightest bounding box enclosing the hot region."""
-    mask      = (cam >= threshold).astype(np.uint8) * 255
+    mask        = (cam >= threshold).astype(np.uint8) * 255
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     if not contours:
         return None
@@ -96,9 +96,9 @@ def build_report(orig_np, overlay_np, bbox_img_np,
 
     # ── Panels 0-2: image views ───────────────────────────────────────────────
     panel_data = [
-        ("Original Image",    orig_np),
-        ("Grad-CAM Heatmap",  overlay_np),
-        ("Lesion Detection",  bbox_img_np),
+        ("Original Image",   orig_np),
+        ("Grad-CAM Heatmap", overlay_np),
+        ("Lesion Detection", bbox_img_np),
     ]
     for col, (title, img) in enumerate(panel_data):
         ax = fig.add_subplot(gs[col])
@@ -117,39 +117,32 @@ def build_report(orig_np, overlay_np, bbox_img_np,
     ax4.axis("off")
     ax4.set_title("Diagnosis", color="#d1d5db", fontsize=10, pad=6)
 
-    # Verdict
     ax4.text(0.5, 0.88, verdict_text, ha="center", va="center",
              fontsize=12, fontweight="bold", color=verdict_color)
 
-    # Melanoma bar
     ax4.barh(0.72, 0.88, height=0.07, left=0.06, color="#374151")
     ax4.barh(0.72, 0.88 * mel_pct / 100, height=0.07, left=0.06, color="#ef4444")
     ax4.text(0.5, 0.79, f"Melanoma         {mel_pct:.1f}%",
              ha="center", color="#ef4444", fontsize=9)
 
-    # Non-melanoma bar
     ax4.barh(0.58, 0.88, height=0.07, left=0.06, color="#374151")
     ax4.barh(0.58, 0.88 * non_mel_pct / 100, height=0.07, left=0.06, color="#22c55e")
     ax4.text(0.5, 0.65, f"Non-Melanoma  {non_mel_pct:.1f}%",
              ha="center", color="#22c55e", fontsize=9)
 
-    # Confidence
     ax4.text(0.5, 0.43, f"Confidence: {confidence:.1f}%",
              ha="center", color="white", fontsize=10, fontweight="bold")
     ax4.text(0.5, 0.34, conf_label,
              ha="center", color="#9ca3af", fontsize=9)
 
-    # Bounding box coords
     if bbox:
         x1, y1, x2, y2 = bbox
         ax4.text(0.5, 0.22, f"Lesion region:  [{x1},{y1}] → [{x2},{y2}]",
                  ha="center", color="#6b7280", fontsize=7.5)
 
-    # Disclaimer
     ax4.text(0.5, 0.06, "⚕  For medical reference only",
              ha="center", color="#4b5563", fontsize=7.5)
 
-    # Border accent
     for sp in ax4.spines.values():
         sp.set_edgecolor("#374151")
 
@@ -162,10 +155,13 @@ def build_report(orig_np, overlay_np, bbox_img_np,
 
 
 def run_inference(image_path, checkpoint_path=CKPT_PATH, output_path=None):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
     # ── Load model ────────────────────────────────────────────────────────────
     model    = models.resnet18(weights=None)
     model.fc = nn.Linear(model.fc.in_features, 2)
-    model.load_state_dict(torch.load(checkpoint_path, map_location="cpu", weights_only=True))
+    model.load_state_dict(torch.load(checkpoint_path, map_location=device, weights_only=True))
+    model     = model.to(device)
     model.eval()
 
     gradcam = GradCAM(model)
@@ -178,18 +174,18 @@ def run_inference(image_path, checkpoint_path=CKPT_PATH, output_path=None):
     ])
 
     # ── Load & preprocess image ───────────────────────────────────────────────
-    orig        = Image.open(image_path).convert("RGB")
+    orig         = Image.open(image_path).convert("RGB")
     orig_resized = orig.resize((224, 224))
-    orig_np     = np.array(orig_resized)
-    tensor      = preprocess(orig).unsqueeze(0).requires_grad_(True)
+    orig_np      = np.array(orig_resized)
 
     # ── Predict ───────────────────────────────────────────────────────────────
+    tensor = preprocess(orig).unsqueeze(0).to(device)
     with torch.no_grad():
-        probs = torch.softmax(model(tensor), dim=1)[0].numpy()
+        probs = torch.softmax(model(tensor), dim=1)[0].cpu().numpy()
     pred_class = int(np.argmax(probs))
 
     # ── Grad-CAM ──────────────────────────────────────────────────────────────
-    tensor_grad = preprocess(orig).unsqueeze(0).requires_grad_(True)
+    tensor_grad = preprocess(orig).unsqueeze(0).to(device)
     cam  = gradcam.generate(tensor_grad, pred_class)
     bbox = get_bounding_box(cam, threshold=0.45)
 
@@ -214,14 +210,14 @@ def run_inference(image_path, checkpoint_path=CKPT_PATH, output_path=None):
     # ── Build & save report ───────────────────────────────────────────────────
     image_name = os.path.basename(image_path)
     if output_path is None:
-        base       = os.path.splitext(image_name)[0]
-        output_path = f"{RESULTS_DIR}/{base}_analysis.png"
+        base        = os.path.splitext(image_name)[0]
+        output_path = os.path.join(RESULTS_DIR, f"{base}_analysis.png")
 
     build_report(orig_np, overlay_np, bbox_img,
                  probs, pred_class, bbox, image_name, output_path)
 
     # ── Console summary ───────────────────────────────────────────────────────
-    mel_pct    = probs[1] * 100
+    mel_pct     = probs[1] * 100
     non_mel_pct = probs[0] * 100
     conf_label  = ("High Confidence"     if max(probs) > 0.85 else
                    "Moderate Confidence" if max(probs) > 0.65 else

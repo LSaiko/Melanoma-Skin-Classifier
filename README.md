@@ -7,22 +7,32 @@ A fine-tuned **ResNet-18** classifier trained on the [HAM10000](https://datavers
 ## Project Structure
 
 ```
-data/
+Melanoma-Skin-Classifier/
 ├── Training_Model.py       # Full training pipeline
 ├── Inference.py            # Single-image analysis with visual report
-├── Augmentation.py         # Transform definitions
-├── Load_Image.py           # Dataset class
-├── Load_PreTrained.py      # Model loading utilities
-├── checkpoints/
+├── Augmentation.py         # Transform definitions (train + val)
+├── Load_Image.py           # Dataset class with subfolder support
+├── Load_PreTrained.py      # Model loading utility
+├── requirements.txt        # Python dependencies
+├── checkpoints/            # Saved during training (not tracked by git)
 │   ├── resnet18_best.pth       # Best checkpoint (lowest val loss)
 │   ├── resnet18_final.pth      # Final epoch checkpoint
 │   └── training_history.json  # Per-epoch metrics
-├── results/
-│   └── <image>_analysis.png   # Inference reports
-└── images/
-    ├── HAM10000_metadata.csv
-    ├── HAM10000_images_part_1/
-    └── HAM10000_images_part_2/
+├── results/                # Inference reports (not tracked by git)
+│   └── <image>_analysis.png
+└── data/                   # Dataset (not tracked by git)
+    └── images/
+        ├── HAM10000_metadata.csv
+        ├── HAM10000_images_part_1/
+        └── HAM10000_images_part_2/
+```
+
+---
+
+## Setup
+
+```bash
+pip install -r requirements.txt
 ```
 
 ---
@@ -41,27 +51,35 @@ data/
 | Loss | CrossEntropyLoss |
 | Early stopping | Patience = 3 epochs (monitors val loss) |
 | Metrics | Accuracy, AUC-ROC, Precision, Recall, F1 |
+| GPU support | Auto-detects CUDA, falls back to CPU |
 
 ### Run Training
+
+Default run (expects data at `data/images/`):
 ```bash
 python Training_Model.py
 ```
 
-### Training Results (Run 1 — full dataset, 10 epochs, no val split)
-| Epoch | Loss |
-|---|---|
-| 0 | 0.1241 |
-| 1 | 0.1793 |
-| 2 | 0.1919 |
-| 3 | 0.1498 |
-| 4 | 0.1283 |
-| 5 | 0.0774 |
-| **6** | **0.0233** ← best |
-| 7 | 0.0681 |
-| 8 | 0.0804 |
-| 9 | 0.1809 |
+Custom paths:
+```bash
+python Training_Model.py \
+  --img-dir  /path/to/HAM10000/images \
+  --csv      /path/to/HAM10000_metadata.csv \
+  --ckpt-dir /path/to/save/checkpoints \
+  --epochs   20 \
+  --patience 5
+```
 
-> **Note:** Run 1 used training loss only (no val split). The updated `Training_Model.py` now uses a stratified 80/20 split and reports both train loss and val loss + AUC per epoch.
+All arguments:
+```
+--img-dir     Root directory of HAM10000 images   (default: data/images)
+--csv         Path to HAM10000_metadata.csv        (default: data/images/HAM10000_metadata.csv)
+--ckpt-dir    Directory to save checkpoints        (default: checkpoints)
+--epochs      Max training epochs                  (default: 10)
+--patience    Early-stopping patience              (default: 3)
+--batch-size  Batch size                           (default: 32)
+--lr          Adam learning rate                   (default: 1e-4)
+```
 
 ---
 
@@ -73,8 +91,8 @@ python Inference.py --image path/to/lesion.jpg
 
 Optional arguments:
 ```
---checkpoint   Path to .pth model file (default: checkpoints/resnet18_best.pth)
---output       Path to save the report PNG (default: results/<name>_analysis.png)
+--checkpoint   Path to .pth model file   (default: checkpoints/resnet18_best.pth)
+--output       Path to save report PNG   (default: results/<name>_analysis.png)
 ```
 
 ### What the Report Shows
@@ -107,14 +125,6 @@ The output is a **4-panel PNG report**:
 
 ### Bounding Box
 The bounding box is derived from the **Grad-CAM activation map**: the heatmap is thresholded at 45 %, the largest contour is found with OpenCV, and `cv2.boundingRect` returns `[x1, y1, x2, y2]` coordinates on the 224×224 image space.
-
----
-
-## Dependencies
-
-```bash
-pip install torch torchvision pillow pandas numpy scikit-learn opencv-python matplotlib
-```
 
 ---
 
